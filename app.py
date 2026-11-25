@@ -8,7 +8,7 @@ import beep_sound as snd
 from config import __application_path as application_path, save_config, validate_config
 from devices import build_devices
 from history import BatteryHistory
-from logic import as_mapping, evaluate_device_update, float_or, int_or, position_or
+from logic import as_mapping, classify_level, evaluate_device_update, float_or, int_or, position_or
 from overlay import BatteryRowOverlay
 from poller import BatteryPoller
 from settings import HistoryWindow, SettingsWindow
@@ -276,13 +276,34 @@ class AppController:
         self.low_repeat_step = int(battery.get("low_repeat_step", 5))
         self.devices = build_devices(new_cfg)
 
-        self.levels = {d["key"]: None for d in self.devices}
-        self.states = {d["key"]: "unknown" for d in self.devices}
-        self.disconnected = {d["key"]: False for d in self.devices}
-        self.last_notified_level = {d["key"]: None for d in self.devices}
+        old_levels = dict(self.levels)
+        old_disconnected = dict(self.disconnected)
+        old_last_notified = dict(self.last_notified_level)
+
+        self.levels = {}
+        self.states = {}
+        self.disconnected = {}
+        self.last_notified_level = {}
+        for device in self.devices:
+            key = device["key"]
+            level = old_levels.get(key)
+            disconnected = old_disconnected.get(key, False)
+            if disconnected:
+                state = "disconnected"
+            elif level is None:
+                state = "unknown"
+            else:
+                state = classify_level(level, self.low, self.full)
+            self.levels[key] = level
+            self.states[key] = state
+            self.disconnected[key] = disconnected
+            self.last_notified_level[key] = (
+                old_last_notified.get(key) if state == "low" else None
+            )
 
         pos = battery.get("overlay_pos", [20, 20])
         self.overlay.set_devices(self.devices)
+        self.overlay.update_levels(self.levels)
         self.overlay.set_low_threshold(self.low)
         self.overlay.move(int(pos[0]), int(pos[1]))
         self.overlay.set_opacity(float(new_cfg.get("overlay_opacity", 1.0)))
