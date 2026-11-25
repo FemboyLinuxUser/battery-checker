@@ -53,3 +53,7 @@ def _normalize_sound_spec(spec):
     if isinstance(spec, dict):
         return dict(spec)
     return {"file": str(spec) if spec else ""}
+
+
+def as_mapping(value):
+    return value if isinstance(value, dict) else {}

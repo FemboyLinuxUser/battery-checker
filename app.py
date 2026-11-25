@@ -8,7 +8,7 @@ import beep_sound as snd
 from config import __application_path as application_path, save_config, validate_config
 from devices import build_devices
 from history import BatteryHistory
-from logic import evaluate_device_update
+from logic import as_mapping, evaluate_device_update
 from overlay import BatteryRowOverlay
 from poller import BatteryPoller
 from settings import HistoryWindow, SettingsWindow
@@ -37,10 +37,11 @@ class AppController:
     def __init__(self, app, cfg):
         self.app = app
         self.cfg = cfg
-        self.low = int(cfg.get("battery", {}).get("low_threshold", 20))
-        self.full = int(cfg.get("battery", {}).get("full_threshold", 100))
-        self.interval = int(cfg.get("battery", {}).get("poll_interval", 60))
-        self.low_repeat_step = int(cfg.get("battery", {}).get("low_repeat_step", 5))
+        battery_cfg = as_mapping(cfg.get("battery"))
+        self.low = int(battery_cfg.get("low_threshold", 20))
+        self.full = int(battery_cfg.get("full_threshold", 100))
+        self.interval = int(battery_cfg.get("poll_interval", 60))
+        self.low_repeat_step = int(battery_cfg.get("low_repeat_step", 5))
         self.devices = build_devices(cfg)
         self.levels = {d["key"]: None for d in self.devices}
         self.states = {d["key"]: "unknown" for d in self.devices}
@@ -50,18 +51,18 @@ class AppController:
         self.quitting = False
         self.history_window = None
 
-        history_cfg = cfg.get("history", {})
+        history_cfg = as_mapping(cfg.get("history"))
         self.history = BatteryHistory(
             retention_days=history_cfg.get("retention_days", 90),
             unchanged_write_minutes=history_cfg.get("unchanged_write_minutes", 5),
         )
 
         try:
-            snd.init(cfg["sounds"], base_dir=application_path, volume=1, logger=log.info)
+            snd.init(as_mapping(cfg.get("sounds")), base_dir=application_path, volume=1, logger=log.info)
         except Exception as exc:
             log.warning("Не удалось инициализировать звук: %s", exc)
 
-        pos0 = cfg.get("battery", {}).get("overlay_pos", [20, 20])
+        pos0 = battery_cfg.get("overlay_pos", [20, 20])
         opacity0 = float(cfg.get("overlay_opacity", 1.0))
         self.overlay_state = {"visible": bool(cfg.get("show_overlay", True))}
         self.overlay = BatteryRowOverlay(

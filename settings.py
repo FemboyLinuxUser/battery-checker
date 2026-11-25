@@ -14,7 +14,7 @@ from PyQt5.QtWidgets import (
 
 from bt_battery_ctypes import list_all_battery_devices, list_bluetooth_devices
 from devices import DEVICE_TYPE_LABELS, _normalize_devices_list
-from logic import _normalize_sound_spec
+from logic import _normalize_sound_spec, as_mapping
 
 log = logging.getLogger(__name__)
 
@@ -225,6 +225,8 @@ class SettingsWindow(QWidget):
         self._on_preview_opacity = on_preview_opacity
         self._on_open_history = on_open_history
         self._cfg = deepcopy(cfg)
+        self._cfg["battery"] = as_mapping(self._cfg.get("battery"))
+        self._cfg["sounds"] = as_mapping(self._cfg.get("sounds"))
         self._device_rows = []
         self._bt_devices_cache = []
         self._bt_battery_names = set()
@@ -428,7 +430,9 @@ class SettingsWindow(QWidget):
     # ------- загрузка состояния -------
     def reload(self, cfg):
         self._cfg = deepcopy(cfg)
-        bat = self._cfg.setdefault("battery", {})
+        self._cfg["battery"] = as_mapping(self._cfg.get("battery"))
+        self._cfg["sounds"] = as_mapping(self._cfg.get("sounds"))
+        bat = self._cfg["battery"]
         bat["devices"] = _normalize_devices_list(bat.get("devices", []))
 
         self.low_spin.setValue(int(bat.get("low_threshold", 20)))
