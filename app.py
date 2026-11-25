@@ -136,7 +136,7 @@ class AppController:
 
     def open_history(self):
         if self.history_window is None:
-            self.history_window = HistoryWindow(self.devices, self.history, self.settings_window)
+            self.history_window = HistoryWindow(self.devices, self.history)
         else:
             self.history_window._refresh()
         self.history_window.show()
