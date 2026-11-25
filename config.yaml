@@ -1,0 +1,47 @@
+show_overlay: true
+overlay_opacity: 0.4
+sounds:
+  low_aula:
+    freq: 500
+    dur_ms: 30
+    count: 5
+    gap_ms: 60
+  exit:
+    freq: 1500
+    dur_ms: 100
+    count: 3
+    gap_ms: 0
+  low_bt:
+    freq: 500
+    dur_ms: 30
+    count: 5
+    gap_ms: 60
+  full_bt:
+    freq: 1000
+    dur_ms: 100
+    count: 2
+    gap_ms: 0
+  full_aula:
+    freq: 1000
+    dur_ms: 100
+    count: 2
+    gap_ms: 0
+battery:
+  low_threshold: 20
+  full_threshold: 100
+  poll_interval: 20
+  overlay_pos:
+  - 10
+  - 10
+  devices:
+  - source: aula
+    type: keyboard
+    enabled: true
+  - source: bluetooth
+    type: headphones
+    enabled: true
+    bluetooth_name: MOMENTUM 4
+  - source: bluetooth
+    type: generic
+    enabled: false
+    bluetooth_name: ’а ­бЇ®ав AVRCP MOMENTUM 4
