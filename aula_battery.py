@@ -1,8 +1,13 @@
 """Чтение уровня заряда AULA F108 Pro (USB-донгл 2.4G, MI_03)."""
 import ctypes
 from ctypes import wintypes
+import logging
+import os
+
 import hid
 import time
+
+log = logging.getLogger(__name__)
 
 # --- Windows API константы ---
 GENERIC_READ = 0x80000000
@@ -28,7 +33,7 @@ COMMAND = b'\x00' + bytes([0x20, 0x01, 0x00] + [0x00] * 28 + [0x21])
 BATTERY_PREFIX = bytes([0x00, 0x20, 0x01, 0x00])
 
 # --- Windows API ---
-kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
+kernel32 = ctypes.WinDLL('kernel32', use_last_error=True) if os.name == "nt" else None
 
 class OVERLAPPED(ctypes.Structure):
     _fields_ = [
@@ -37,40 +42,45 @@ class OVERLAPPED(ctypes.Structure):
         ("hEvent", wintypes.HANDLE),
     ]
 
-CreateFileW = kernel32.CreateFileW
-CreateFileW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD,
-                        wintypes.LPVOID, wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE]
-CreateFileW.restype = wintypes.HANDLE
+if kernel32 is not None:
+    CreateFileW = kernel32.CreateFileW
+    CreateFileW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD,
+                            wintypes.LPVOID, wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE]
+    CreateFileW.restype = wintypes.HANDLE
 
-CloseHandle = kernel32.CloseHandle
-CloseHandle.argtypes = [wintypes.HANDLE]
+    CloseHandle = kernel32.CloseHandle
+    CloseHandle.argtypes = [wintypes.HANDLE]
 
-CreateEventW = kernel32.CreateEventW
-CreateEventW.argtypes = [wintypes.LPVOID, wintypes.BOOL, wintypes.BOOL, wintypes.LPCWSTR]
-CreateEventW.restype = wintypes.HANDLE
+    CreateEventW = kernel32.CreateEventW
+    CreateEventW.argtypes = [wintypes.LPVOID, wintypes.BOOL, wintypes.BOOL, wintypes.LPCWSTR]
+    CreateEventW.restype = wintypes.HANDLE
 
-WaitForSingleObject = kernel32.WaitForSingleObject
-WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
-WaitForSingleObject.restype = wintypes.DWORD
+    WaitForSingleObject = kernel32.WaitForSingleObject
+    WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+    WaitForSingleObject.restype = wintypes.DWORD
 
-GetOverlappedResult = kernel32.GetOverlappedResult
-GetOverlappedResult.argtypes = [wintypes.HANDLE, ctypes.POINTER(OVERLAPPED),
-                                wintypes.LPDWORD, wintypes.BOOL]
-GetOverlappedResult.restype = wintypes.BOOL
+    GetOverlappedResult = kernel32.GetOverlappedResult
+    GetOverlappedResult.argtypes = [wintypes.HANDLE, ctypes.POINTER(OVERLAPPED),
+                                    wintypes.LPDWORD, wintypes.BOOL]
+    GetOverlappedResult.restype = wintypes.BOOL
 
-CancelIoEx = kernel32.CancelIoEx
-CancelIoEx.argtypes = [wintypes.HANDLE, ctypes.POINTER(OVERLAPPED)]
-CancelIoEx.restype = wintypes.BOOL
+    CancelIoEx = kernel32.CancelIoEx
+    CancelIoEx.argtypes = [wintypes.HANDLE, ctypes.POINTER(OVERLAPPED)]
+    CancelIoEx.restype = wintypes.BOOL
 
-WriteFile = kernel32.WriteFile
-WriteFile.argtypes = [wintypes.HANDLE, wintypes.LPCVOID, wintypes.DWORD,
-                      wintypes.LPDWORD, ctypes.POINTER(OVERLAPPED)]
-WriteFile.restype = wintypes.BOOL
+    WriteFile = kernel32.WriteFile
+    WriteFile.argtypes = [wintypes.HANDLE, wintypes.LPCVOID, wintypes.DWORD,
+                          wintypes.LPDWORD, ctypes.POINTER(OVERLAPPED)]
+    WriteFile.restype = wintypes.BOOL
 
-ReadFile = kernel32.ReadFile
-ReadFile.argtypes = [wintypes.HANDLE, wintypes.LPVOID, wintypes.DWORD,
-                     wintypes.LPDWORD, ctypes.POINTER(OVERLAPPED)]
-ReadFile.restype = wintypes.BOOL
+    ReadFile = kernel32.ReadFile
+    ReadFile.argtypes = [wintypes.HANDLE, wintypes.LPVOID, wintypes.DWORD,
+                         wintypes.LPDWORD, ctypes.POINTER(OVERLAPPED)]
+    ReadFile.restype = wintypes.BOOL
+
+else:
+    CreateFileW = CloseHandle = CreateEventW = WaitForSingleObject = None
+    GetOverlappedResult = CancelIoEx = WriteFile = ReadFile = None
 
 # --- Внутренние хелперы ---
 def _find_path():
@@ -119,6 +129,8 @@ def _read(handle, size=64, timeout_ms=700):
 # --- Публичный API ---
 def get_battery_level(attempts=3):
     """Возвращает уровень заряда (0-100) или None, если устройство не отвечает."""
+    if kernel32 is None:
+        return None
     path = _find_path()
     if not path:
         return None
@@ -156,20 +168,21 @@ def get_battery_level(attempts=3):
 if __name__ == "__main__":
     import sys
 
+    logging.basicConfig(level=logging.INFO)
     if "--loop" in sys.argv:
         # Мониторинг: опрос раз в минуту
         while True:
             level = get_battery_level()
             ts = time.strftime("%H:%M:%S")
             if level is not None:
-                print(f"{ts} 🔋 {level}%", flush=True)
+                log.info("%s заряд %s%%", ts, level)
             else:
-                print(f"{ts} ⚠️  не удалось прочитать", flush=True)
+                log.warning("%s не удалось прочитать заряд", ts)
             time.sleep(60)
     else:
         level = get_battery_level()
         if level is not None:
-            print(f"🔋 {level}%")
+            log.info("Заряд: %s%%", level)
         else:
-            print("Не удалось получить заряд")
+            log.error("Не удалось получить заряд")
             sys.exit(1)
