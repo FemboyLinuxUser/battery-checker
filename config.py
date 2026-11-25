@@ -98,6 +98,15 @@ def _migrate_legacy_config():
         log.warning("Не удалось перенести старый конфиг: %s", exc)
 
 
+def sanitize_config_sections(cfg):
+    """Заменяет malformed top-level секции дефолтами, не трогая валидные значения."""
+    sanitized = copy.deepcopy(cfg)
+    for section in ("battery", "sounds", "history"):
+        if not isinstance(sanitized.get(section), dict):
+            sanitized[section] = copy.deepcopy(DEFAULT_CONFIG[section])
+    return sanitized
+
+
 def load_config():
     ensure_config_dir()
     _migrate_legacy_config()
@@ -123,7 +132,7 @@ def load_config():
     errors = validate_config(merged)
     if errors:
         log.warning("Конфиг содержит ошибки: %s", "; ".join(errors))
-    return merged
+    return sanitize_config_sections(merged)
 
 
 def save_config(cfg, path=None):
@@ -190,6 +199,14 @@ def validate_config(cfg):
                 errors.append(f"battery.devices[{i}].source должен быть aula или bluetooth")
             if dev.get("source") == "bluetooth" and not dev.get("bluetooth_name"):
                 errors.append(f"battery.devices[{i}].bluetooth_name не должен быть пустым")
+
+    sounds = cfg.get("sounds", {})
+    if not isinstance(sounds, dict):
+        errors.append("sounds должен быть объектом")
+    else:
+        for key, spec in sounds.items():
+            if not isinstance(spec, (dict, str)):
+                errors.append(f"sounds.{key} должен быть объектом или именем файла")
 
     opacity = cfg.get("overlay_opacity", 1.0)
     if not _is_number(opacity) or not 0.05 <= opacity <= 1.0:
