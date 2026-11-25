@@ -226,26 +226,46 @@ def _matches(part, name):
     return bool(part and name) and part.lower() in name.lower()
 
 
-def match_devices(names):
-    """
-    Для каждого имени возвращает {'present': bool, 'level': int|None}.
-    Все имена матчатся за один проход SetupAPI substring-match без учёта регистра.
-    """
+def match_scanned_devices(names, scanned_devices):
+    """Сопоставляет имена с уже полученным списком; точное совпадение важнее substring."""
     names = [str(n) for n in names if n]
-    result = {name: {"present": False, "level": None} for name in names}
-    if not names:
-        return result
-    for dev in scan_present_devices():
+    candidates = {
+        name: {"present": False, "exact_level": None, "substring_level": None}
+        for name in names
+    }
+    for dev in scanned_devices:
         fname = dev.get("name")
         if not fname:
             continue
         for name in names:
             if not _matches(name, fname):
                 continue
-            result[name]["present"] = True
-            if dev.get("level") is not None and result[name]["level"] is None:
-                result[name]["level"] = dev["level"]
+            data = candidates[name]
+            data["present"] = True
+            level = dev.get("level")
+            if level is None:
+                continue
+            if fname.lower() == name.lower():
+                if data["exact_level"] is None:
+                    data["exact_level"] = level
+            elif data["substring_level"] is None:
+                data["substring_level"] = level
+
+    result = {}
+    for name, data in candidates.items():
+        level = data["exact_level"]
+        if level is None:
+            level = data["substring_level"]
+        result[name] = {"present": data["present"], "level": level}
     return result
+
+
+def match_devices(names):
+    """
+    Для каждого имени возвращает {'present': bool, 'level': int|None}.
+    Все имена матчатся за один проход SetupAPI substring-match без учёта регистра.
+    """
+    return match_scanned_devices(names, scan_present_devices())
 
 
 def get_battery_levels(names):
