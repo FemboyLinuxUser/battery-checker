@@ -1,8 +1,13 @@
+"""Доступ к заряду Bluetooth-устройств через Windows SetupAPI."""
+
 import ctypes
 from ctypes import wintypes
+import logging
+import os
 import uuid
 
-# --- Константы ---
+log = logging.getLogger(__name__)
+
 DIGCF_PRESENT = 0x00000002
 DIGCF_ALLCLASSES = 0x00000004
 
@@ -14,11 +19,14 @@ DEVPROP_TYPE_UINT16 = 0x00000005
 DEVPROP_TYPE_UINT32 = 0x00000007
 
 INVALID_HANDLE_VALUE = ctypes.c_void_p(-1).value
+BLUETOOTH_CLASS_GUID = "{e0cbf06c-cd8b-4647-bb8a-263b43f0f974}"
 
-setupapi = ctypes.WinDLL("setupapi", use_last_error=True)
+if os.name == "nt":
+    setupapi = ctypes.WinDLL("setupapi", use_last_error=True)
+else:
+    setupapi = None
 
 
-# --- Структуры ---
 class GUID(ctypes.Structure):
     _fields_ = [
         ("Data1", wintypes.DWORD),
@@ -43,7 +51,7 @@ class SP_DEVINFO_DATA(ctypes.Structure):
         ("cbSize", wintypes.DWORD),
         ("ClassGuid", GUID),
         ("DevInst", wintypes.DWORD),
-        ("Reserved", ctypes.c_size_t),  # ULONG_PTR
+        ("Reserved", ctypes.c_size_t),
     ]
 
 
@@ -54,47 +62,56 @@ class DEVPROPKEY(ctypes.Structure):
     ]
 
 
-# --- Прототипы функций ---
-setupapi.SetupDiGetClassDevsW.argtypes = [
-    ctypes.POINTER(GUID),
-    wintypes.LPCWSTR,
-    wintypes.HWND,
-    wintypes.DWORD,
-]
-setupapi.SetupDiGetClassDevsW.restype = wintypes.HANDLE
+if setupapi is not None:
+    setupapi.SetupDiGetClassDevsW.argtypes = [
+        ctypes.POINTER(GUID),
+        wintypes.LPCWSTR,
+        wintypes.HWND,
+        wintypes.DWORD,
+    ]
+    setupapi.SetupDiGetClassDevsW.restype = wintypes.HANDLE
 
-setupapi.SetupDiEnumDeviceInfo.argtypes = [
-    wintypes.HANDLE,
-    wintypes.DWORD,
-    ctypes.POINTER(SP_DEVINFO_DATA),
-]
-setupapi.SetupDiEnumDeviceInfo.restype = wintypes.BOOL
+    setupapi.SetupDiEnumDeviceInfo.argtypes = [
+        wintypes.HANDLE,
+        wintypes.DWORD,
+        ctypes.POINTER(SP_DEVINFO_DATA),
+    ]
+    setupapi.SetupDiEnumDeviceInfo.restype = wintypes.BOOL
 
-setupapi.SetupDiGetDeviceRegistryPropertyW.argtypes = [
-    wintypes.HANDLE,
-    ctypes.POINTER(SP_DEVINFO_DATA),
-    wintypes.DWORD,
-    ctypes.POINTER(wintypes.DWORD),
-    ctypes.POINTER(ctypes.c_ubyte),
-    wintypes.DWORD,
-    ctypes.POINTER(wintypes.DWORD),
-]
-setupapi.SetupDiGetDeviceRegistryPropertyW.restype = wintypes.BOOL
+    setupapi.SetupDiGetDeviceRegistryPropertyW.argtypes = [
+        wintypes.HANDLE,
+        ctypes.POINTER(SP_DEVINFO_DATA),
+        wintypes.DWORD,
+        ctypes.POINTER(wintypes.DWORD),
+        ctypes.POINTER(ctypes.c_ubyte),
+        wintypes.DWORD,
+        ctypes.POINTER(wintypes.DWORD),
+    ]
+    setupapi.SetupDiGetDeviceRegistryPropertyW.restype = wintypes.BOOL
 
-setupapi.SetupDiGetDevicePropertyW.argtypes = [
-    wintypes.HANDLE,
-    ctypes.POINTER(SP_DEVINFO_DATA),
-    ctypes.POINTER(DEVPROPKEY),
-    ctypes.POINTER(wintypes.DWORD),
-    ctypes.POINTER(ctypes.c_ubyte),
-    wintypes.DWORD,
-    ctypes.POINTER(wintypes.DWORD),
-    wintypes.DWORD,
-]
-setupapi.SetupDiGetDevicePropertyW.restype = wintypes.BOOL
+    setupapi.SetupDiGetDevicePropertyW.argtypes = [
+        wintypes.HANDLE,
+        ctypes.POINTER(SP_DEVINFO_DATA),
+        ctypes.POINTER(DEVPROPKEY),
+        ctypes.POINTER(wintypes.DWORD),
+        ctypes.POINTER(ctypes.c_ubyte),
+        wintypes.DWORD,
+        ctypes.POINTER(wintypes.DWORD),
+        wintypes.DWORD,
+    ]
+    setupapi.SetupDiGetDevicePropertyW.restype = wintypes.BOOL
 
-setupapi.SetupDiDestroyDeviceInfoList.argtypes = [wintypes.HANDLE]
-setupapi.SetupDiDestroyDeviceInfoList.restype = wintypes.BOOL
+    setupapi.SetupDiGetDeviceInstanceIdW.argtypes = [
+        wintypes.HANDLE,
+        ctypes.POINTER(SP_DEVINFO_DATA),
+        ctypes.POINTER(ctypes.c_wchar),
+        wintypes.DWORD,
+        ctypes.POINTER(wintypes.DWORD),
+    ]
+    setupapi.SetupDiGetDeviceInstanceIdW.restype = wintypes.BOOL
+
+    setupapi.SetupDiDestroyDeviceInfoList.argtypes = [wintypes.HANDLE]
+    setupapi.SetupDiDestroyDeviceInfoList.restype = wintypes.BOOL
 
 
 BATTERY_DEVPKEY = DEVPROPKEY(
@@ -103,21 +120,39 @@ BATTERY_DEVPKEY = DEVPROPKEY(
 )
 
 
-# --- Вспомогательные функции ---
-def _get_friendly_name(h, did):
+def _get_registry_string(h, did, prop):
     buf = ctypes.create_unicode_buffer(1024)
     required = wintypes.DWORD(0)
     ptype = wintypes.DWORD(0)
     ok = setupapi.SetupDiGetDeviceRegistryPropertyW(
         h,
         ctypes.byref(did),
-        SPDRP_FRIENDLYNAME,
+        prop,
         ctypes.byref(ptype),
         ctypes.cast(buf, ctypes.POINTER(ctypes.c_ubyte)),
         ctypes.sizeof(buf),
         ctypes.byref(required),
     )
     return buf.value if ok else None
+
+
+def _get_friendly_name(h, did):
+    return _get_registry_string(h, did, SPDRP_FRIENDLYNAME) or _get_registry_string(
+        h, did, SPDRP_DEVICEDESC
+    )
+
+
+def _get_instance_id(h, did):
+    buf = ctypes.create_unicode_buffer(1024)
+    required = wintypes.DWORD(0)
+    ok = setupapi.SetupDiGetDeviceInstanceIdW(
+        h,
+        ctypes.byref(did),
+        buf,
+        1024,
+        ctypes.byref(required),
+    )
+    return buf.value if ok else ""
 
 
 def _get_battery_prop(h, did):
@@ -145,71 +180,122 @@ def _get_battery_prop(h, did):
     return None
 
 
-# --- Публичный API ---
+def _open_devices(class_guid=None, flags=DIGCF_PRESENT | DIGCF_ALLCLASSES):
+    if setupapi is None:
+        return None
+    guid = GUID.from_string(class_guid) if class_guid else None
+    guid_ptr = ctypes.byref(guid) if guid is not None else None
+    h = setupapi.SetupDiGetClassDevsW(guid_ptr, None, None, flags)
+    if not h or h == INVALID_HANDLE_VALUE:
+        return None
+    return h
+
+
+def _iter_devices(h):
+    idx = 0
+    while True:
+        did = SP_DEVINFO_DATA()
+        did.cbSize = ctypes.sizeof(SP_DEVINFO_DATA)
+        if not setupapi.SetupDiEnumDeviceInfo(h, idx, ctypes.byref(did)):
+            break
+        yield did
+        idx += 1
+
+
+def scan_present_devices(class_guid=None, flags=DIGCF_PRESENT | DIGCF_ALLCLASSES):
+    """Один проход по present-устройствам: имя, InstanceId и battery property."""
+    h = _open_devices(class_guid, flags)
+    if h is None:
+        return []
+    result = []
+    try:
+        for did in _iter_devices(h):
+            result.append(
+                {
+                    "name": _get_friendly_name(h, did),
+                    "instance_id": _get_instance_id(h, did),
+                    "level": _get_battery_prop(h, did),
+                }
+            )
+    finally:
+        setupapi.SetupDiDestroyDeviceInfoList(h)
+    return result
+
+
+def _matches(part, name):
+    return bool(part and name) and part.lower() in name.lower()
+
+
+def match_devices(names):
+    """
+    Для каждого имени возвращает {'present': bool, 'level': int|None}.
+    Все имена матчатся за один проход SetupAPI substring-match без учёта регистра.
+    """
+    names = [str(n) for n in names if n]
+    result = {name: {"present": False, "level": None} for name in names}
+    if not names:
+        return result
+    for dev in scan_present_devices():
+        fname = dev.get("name")
+        if not fname:
+            continue
+        for name in names:
+            if not _matches(name, fname):
+                continue
+            result[name]["present"] = True
+            if dev.get("level") is not None and result[name]["level"] is None:
+                result[name]["level"] = dev["level"]
+    return result
+
+
+def get_battery_levels(names):
+    """Уровни заряда для списка имён за один проход SetupAPI."""
+    matches = match_devices(names)
+    return {name: data["level"] for name, data in matches.items()}
+
+
 def get_bluetooth_battery_level(device_name_part):
     """
     Возвращает уровень заряда (0-100) для Bluetooth-устройства,
     FriendlyName которого содержит `device_name_part` (без учёта регистра).
     None — если не найдено или свойства нет.
     """
-    h = setupapi.SetupDiGetClassDevsW(
-        None, None, None, DIGCF_PRESENT | DIGCF_ALLCLASSES
-    )
-    if not h or h == INVALID_HANDLE_VALUE:
-        return None
-
-    try:
-        did = SP_DEVINFO_DATA()
-        did.cbSize = ctypes.sizeof(SP_DEVINFO_DATA)
-        idx = 0
-        while setupapi.SetupDiEnumDeviceInfo(h, idx, ctypes.byref(did)):
-            fname = _get_friendly_name(h, did)
-            if fname and device_name_part.lower() == fname.lower():
-                level = _get_battery_prop(h, did)
-                if level is not None:
-                    return level
-            idx += 1
-    finally:
-        setupapi.SetupDiDestroyDeviceInfoList(h)
-    return None
+    return get_battery_levels([device_name_part]).get(device_name_part)
 
 
 def list_all_battery_devices():
-    """
-    Диагностическая функция: возвращает список (FriendlyName, battery%) для
-    всех устройств, у которых вообще есть свойство батареи.
-    """
+    """Список (FriendlyName, battery%) для устройств со свойством батареи."""
     result = []
-    h = setupapi.SetupDiGetClassDevsW(
-        None, None, None, DIGCF_PRESENT | DIGCF_ALLCLASSES
-    )
-    if not h or h == INVALID_HANDLE_VALUE:
-        return result
-    try:
-        did = SP_DEVINFO_DATA()
-        did.cbSize = ctypes.sizeof(SP_DEVINFO_DATA)
-        idx = 0
-        while setupapi.SetupDiEnumDeviceInfo(h, idx, ctypes.byref(did)):
-            level = _get_battery_prop(h, did)
-            if level is not None:
-                fname = _get_friendly_name(h, did) or "<no friendly name>"
-                result.append((fname, level))
-            idx += 1
-    finally:
-        setupapi.SetupDiDestroyDeviceInfoList(h)
+    for dev in scan_present_devices():
+        if dev.get("level") is not None:
+            result.append((dev.get("name") or "<no friendly name>", dev["level"]))
     return result
 
 
-if __name__ == "__main__":
-    # 1. Сначала диагностика — покажет, у каких устройств Windows вообще
-    #    хранит свойство батареи. Здесь должны появиться ваши наушники.
-    print("Устройства с известным уровнем заряда:")
-    for name, lvl in list_all_battery_devices():
-        print(f"  {name}: {lvl}%")
+def list_bluetooth_devices():
+    """FriendlyName сопряжённых Bluetooth-устройств через SetupAPI."""
+    names = []
+    seen = set()
+    for dev in scan_present_devices(
+        BLUETOOTH_CLASS_GUID,
+        flags=DIGCF_PRESENT,
+    ):
+        instance_id = (dev.get("instance_id") or "").upper()
+        if not (instance_id.startswith("BTHENUM\\") or instance_id.startswith("BTHLE\\")):
+            continue
+        name = (dev.get("name") or "").strip()
+        if not name:
+            continue
+        key = name.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        names.append(name)
+    return names
 
-    # 2. Затем — целевой запрос.
-    level = get_bluetooth_battery_level("MOMENTUM 4")
-    if level is not None:
-        print(f"\n🔋 Sennheiser Momentum 4: {level}%")
-    else:
-        print("\nMomentum 4 не найдены среди устройств с battery-свойством.")
+
+if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
+    for name, lvl in list_all_battery_devices():
+        log.info("%s: %s%%", name, lvl)
+    log.info("MOMENTUM 4: %s", get_bluetooth_battery_level("MOMENTUM 4"))
