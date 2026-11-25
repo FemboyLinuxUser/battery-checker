@@ -71,6 +71,17 @@ def _deep_merge(base, override):
     return result
 
 
+def _merge_sound_specs(default_sounds, user_sounds):
+    """Tone-дефолты не должны маскировать явно выбранный WAV-файл."""
+    merged = _deep_merge(default_sounds, user_sounds)
+    if not isinstance(user_sounds, dict):
+        return merged
+    for key, spec in user_sounds.items():
+        if isinstance(spec, dict) and "file" in spec:
+            merged[key] = dict(spec)
+    return merged
+
+
 def ensure_config_dir():
     os.makedirs(CONFIG_DIR, exist_ok=True)
 
@@ -107,6 +118,8 @@ def load_config():
         log.warning("Конфиг %s должен содержать YAML-объект. Используются дефолты.", CONFIG_PATH)
         return copy.deepcopy(DEFAULT_CONFIG)
     merged = _deep_merge(DEFAULT_CONFIG, user)
+    if isinstance(user.get("sounds"), dict):
+        merged["sounds"] = _merge_sound_specs(DEFAULT_CONFIG["sounds"], user["sounds"])
     errors = validate_config(merged)
     if errors:
         log.warning("Конфиг содержит ошибки: %s", "; ".join(errors))

@@ -1,6 +1,6 @@
 import copy
 
-from config import DEFAULT_CONFIG, _deep_merge, validate_config
+from config import DEFAULT_CONFIG, _deep_merge, _merge_sound_specs, validate_config
 from devices import _normalize_devices_list, build_devices
 from logic import _normalize_sound_spec, evaluate_device_update
 
@@ -74,3 +74,11 @@ def test_initial_unknown_does_not_beep_but_tracks_level():
 
 def test_full_transition_event():
     assert evaluate_device_update("ok", 100, 20, 100, 5, None) == ("full", "full", None)
+
+
+def test_file_sound_spec_not_contaminated_by_tone_defaults():
+    merged = _merge_sound_specs(
+        {"low_bt": {"freq": 500, "dur_ms": 30}},
+        {"low_bt": {"file": "sounds/low.wav"}},
+    )
+    assert merged["low_bt"] == {"file": "sounds/low.wav"}
