@@ -8,7 +8,7 @@ import beep_sound as snd
 from config import __application_path as application_path, save_config, validate_config
 from devices import build_devices
 from history import BatteryHistory
-from logic import evaluate_device_update
+from logic import as_mapping, classify_level, evaluate_device_update, float_or, int_or, position_or
 from overlay import BatteryRowOverlay
 from poller import BatteryPoller
 from settings import HistoryWindow, SettingsWindow
@@ -37,10 +37,11 @@ class AppController:
     def __init__(self, app, cfg):
         self.app = app
         self.cfg = cfg
-        self.low = int(cfg.get("battery", {}).get("low_threshold", 20))
-        self.full = int(cfg.get("battery", {}).get("full_threshold", 100))
-        self.interval = int(cfg.get("battery", {}).get("poll_interval", 60))
-        self.low_repeat_step = int(cfg.get("battery", {}).get("low_repeat_step", 5))
+        battery_cfg = as_mapping(cfg.get("battery"))
+        self.low = int_or(battery_cfg.get("low_threshold", 20), 20)
+        self.full = int_or(battery_cfg.get("full_threshold", 100), 100)
+        self.interval = int_or(battery_cfg.get("poll_interval", 60), 60)
+        self.low_repeat_step = int_or(battery_cfg.get("low_repeat_step", 5), 5)
         self.devices = build_devices(cfg)
         self.levels = {d["key"]: None for d in self.devices}
         self.states = {d["key"]: "unknown" for d in self.devices}
@@ -50,23 +51,23 @@ class AppController:
         self.quitting = False
         self.history_window = None
 
-        history_cfg = cfg.get("history", {})
+        history_cfg = as_mapping(cfg.get("history"))
         self.history = BatteryHistory(
-            retention_days=history_cfg.get("retention_days", 90),
-            unchanged_write_minutes=history_cfg.get("unchanged_write_minutes", 5),
+            retention_days=int_or(history_cfg.get("retention_days", 90), 90),
+            unchanged_write_minutes=int_or(history_cfg.get("unchanged_write_minutes", 5), 5),
         )
 
         try:
-            snd.init(cfg["sounds"], base_dir=application_path, volume=1, logger=log.info)
+            snd.init(as_mapping(cfg.get("sounds")), base_dir=application_path, volume=1, logger=log.info)
         except Exception as exc:
             log.warning("Не удалось инициализировать звук: %s", exc)
 
-        pos0 = cfg.get("battery", {}).get("overlay_pos", [20, 20])
-        opacity0 = float(cfg.get("overlay_opacity", 1.0))
+        pos0 = position_or(battery_cfg.get("overlay_pos", [20, 20]))
+        opacity0 = float_or(cfg.get("overlay_opacity", 1.0), 1.0)
         self.overlay_state = {"visible": bool(cfg.get("show_overlay", True))}
         self.overlay = BatteryRowOverlay(
             self.devices,
-            (int(pos0[0]), int(pos0[1])),
+            (pos0[0], pos0[1]),
             self.low,
             opacity0,
         )
@@ -136,7 +137,7 @@ class AppController:
 
     def open_history(self):
         if self.history_window is None:
-            self.history_window = HistoryWindow(self.devices, self.history, self.settings_window)
+            self.history_window = HistoryWindow(self.devices, self.history)
         else:
             self.history_window._refresh()
         self.history_window.show()
@@ -275,13 +276,34 @@ class AppController:
         self.low_repeat_step = int(battery.get("low_repeat_step", 5))
         self.devices = build_devices(new_cfg)
 
-        self.levels = {d["key"]: None for d in self.devices}
-        self.states = {d["key"]: "unknown" for d in self.devices}
-        self.disconnected = {d["key"]: False for d in self.devices}
-        self.last_notified_level = {d["key"]: None for d in self.devices}
+        old_levels = dict(self.levels)
+        old_disconnected = dict(self.disconnected)
+        old_last_notified = dict(self.last_notified_level)
+
+        self.levels = {}
+        self.states = {}
+        self.disconnected = {}
+        self.last_notified_level = {}
+        for device in self.devices:
+            key = device["key"]
+            level = old_levels.get(key)
+            disconnected = old_disconnected.get(key, False)
+            if disconnected:
+                state = "disconnected"
+            elif level is None:
+                state = "unknown"
+            else:
+                state = classify_level(level, self.low, self.full)
+            self.levels[key] = level
+            self.states[key] = state
+            self.disconnected[key] = disconnected
+            self.last_notified_level[key] = (
+                old_last_notified.get(key) if state == "low" else None
+            )
 
         pos = battery.get("overlay_pos", [20, 20])
         self.overlay.set_devices(self.devices)
+        self.overlay.update_levels(self.levels)
         self.overlay.set_low_threshold(self.low)
         self.overlay.move(int(pos[0]), int(pos[1]))
         self.overlay.set_opacity(float(new_cfg.get("overlay_opacity", 1.0)))

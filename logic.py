@@ -53,3 +53,30 @@ def _normalize_sound_spec(spec):
     if isinstance(spec, dict):
         return dict(spec)
     return {"file": str(spec) if spec else ""}
+
+
+def as_mapping(value):
+    return value if isinstance(value, dict) else {}
+
+
+def int_or(value, default):
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return int(default)
+
+
+def float_or(value, default):
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return float(default)
+
+
+def position_or(value, default=(20, 20)):
+    if isinstance(value, (list, tuple)) and len(value) == 2:
+        try:
+            return int(value[0]), int(value[1])
+        except (TypeError, ValueError):
+            pass
+    return int(default[0]), int(default[1])

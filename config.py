@@ -71,6 +71,17 @@ def _deep_merge(base, override):
     return result
 
 
+def _merge_sound_specs(default_sounds, user_sounds):
+    """Tone-дефолты не должны маскировать явно выбранный WAV-файл."""
+    merged = _deep_merge(default_sounds, user_sounds)
+    if not isinstance(user_sounds, dict):
+        return merged
+    for key, spec in user_sounds.items():
+        if isinstance(spec, dict) and "file" in spec:
+            merged[key] = dict(spec)
+    return merged
+
+
 def ensure_config_dir():
     os.makedirs(CONFIG_DIR, exist_ok=True)
 
@@ -85,6 +96,15 @@ def _migrate_legacy_config():
         log.info("Перенесён старый конфиг %s -> %s", LEGACY_CONFIG_PATH, CONFIG_PATH)
     except Exception as exc:
         log.warning("Не удалось перенести старый конфиг: %s", exc)
+
+
+def sanitize_config_sections(cfg):
+    """Заменяет malformed top-level секции дефолтами, не трогая валидные значения."""
+    sanitized = copy.deepcopy(cfg)
+    for section in ("battery", "sounds", "history"):
+        if not isinstance(sanitized.get(section), dict):
+            sanitized[section] = copy.deepcopy(DEFAULT_CONFIG[section])
+    return sanitized
 
 
 def load_config():
@@ -107,10 +127,12 @@ def load_config():
         log.warning("Конфиг %s должен содержать YAML-объект. Используются дефолты.", CONFIG_PATH)
         return copy.deepcopy(DEFAULT_CONFIG)
     merged = _deep_merge(DEFAULT_CONFIG, user)
+    if isinstance(user.get("sounds"), dict):
+        merged["sounds"] = _merge_sound_specs(DEFAULT_CONFIG["sounds"], user["sounds"])
     errors = validate_config(merged)
     if errors:
         log.warning("Конфиг содержит ошибки: %s", "; ".join(errors))
-    return merged
+    return sanitize_config_sections(merged)
 
 
 def save_config(cfg, path=None):
@@ -177,6 +199,14 @@ def validate_config(cfg):
                 errors.append(f"battery.devices[{i}].source должен быть aula или bluetooth")
             if dev.get("source") == "bluetooth" and not dev.get("bluetooth_name"):
                 errors.append(f"battery.devices[{i}].bluetooth_name не должен быть пустым")
+
+    sounds = cfg.get("sounds", {})
+    if not isinstance(sounds, dict):
+        errors.append("sounds должен быть объектом")
+    else:
+        for key, spec in sounds.items():
+            if not isinstance(spec, (dict, str)):
+                errors.append(f"sounds.{key} должен быть объектом или именем файла")
 
     opacity = cfg.get("overlay_opacity", 1.0)
     if not _is_number(opacity) or not 0.05 <= opacity <= 1.0:

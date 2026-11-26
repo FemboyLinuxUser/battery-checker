@@ -2,6 +2,8 @@
 
 import logging
 
+from logic import as_mapping
+
 log = logging.getLogger(__name__)
 
 DEVICE_TYPE_LABELS = {
@@ -55,7 +57,7 @@ def _bt_getter(name):
 def build_devices(cfg):
     devices = []
     used_keys = set()
-    raw = cfg.get("battery", {}).get("devices", [])
+    raw = as_mapping(cfg.get("battery")).get("devices", [])
     for dcfg in _normalize_devices_list(raw):
         if not isinstance(dcfg, dict) or not dcfg.get("enabled", True):
             continue
